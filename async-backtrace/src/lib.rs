@@ -314,7 +314,9 @@ fn crawl_type<R: gimli::Reader<Offset = usize> + PartialEq>(
                                 let state_desc = if let (Some(file), Some(line)) =
                                     (decl_file, decl_line.and_then(|l| l.udata_value()))
                                 {
-                                    let mut desc = format!("at {file:?}:{line}");
+                                    let file = get_file(&file, false, dwarf, unit)?
+                                        .unwrap_or(format!("{file:?}").into());
+                                    let mut desc = format!("at {file}:{line}");
                                     if let Some(col) = decl_col.and_then(|c| c.udata_value()) {
                                         write!(&mut desc, ":{}", col)?;
                                     }
@@ -380,6 +382,32 @@ fn get_name<R: gimli::Reader<Offset = usize>>(
     let Some(name) = entry.attr_value(gimli::DW_AT_name)? else { return Ok(None) };
     let name = dwarf.attr_string(&unit, name)?;
     Ok(Some(name))
+}
+
+fn get_file<'a, R: gimli::Reader<Offset = usize> + 'a>(
+    file: &'a AttributeValue<R>,
+    include_dir: bool,
+    dwarf: &'a gimli::Dwarf<R>,
+    unit: &'a gimli::Unit<R, usize>,
+) -> anyhow::Result<Option<Cow<'a, str>>> {
+    let AttributeValue::FileIndex(index) = file else {
+        return Ok(None); // error?
+    };
+    let Some(prog) = &unit.line_program else { return Ok(None) };
+    let Some(file) = prog.header().file(*index) else { return Ok(None) };
+    let filename = dwarf.attr_string(unit, file.path_name())?;
+    let filename = filename.to_string_lossy()?;
+    if include_dir {
+        if let Some(dir) = file.directory(prog.header()) {
+            let dirname = dwarf.attr_string(unit, dir)?;
+            let dirname = dirname.to_string_lossy()?;
+            if !dirname.is_empty() {
+                return Ok(Some(format!("{dirname}/{filename}").into()));
+            }
+        }
+    }
+    // TODO: Any other way around this lifetime error?
+    Ok(Some(filename.into_owned().into()))
 }
 
 fn get_type<R: gimli::Reader<Offset = usize>>(
