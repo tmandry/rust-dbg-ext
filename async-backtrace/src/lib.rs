@@ -175,6 +175,8 @@ fn crawl_type<R: gimli::Reader<Offset = usize> + PartialEq>(
                         }] => return Ok(Some(address)),
                         _ => eprintln!("Warning: Unsupported evaluation result {:?}", result,),
                     }
+                } else if let AttributeValue::Udata(offset) = attr {
+                    return Ok(Some(start + offset))
                 }
             }
             Ok(None)
